@@ -1,0 +1,59 @@
+# Add this to configuration.yaml for sensor.
+
+sensor:
+- platform: tibberprice
+  url: "https://api.tibber.com/v1-beta/gql"
+  token: "*YOUR API TOKEN HERE*"
+  name: "Tibber Price"
+
+
+# Add this to configuration.yaml to get a sensor that counts down to the upcoming cheapest hour. It's not the cleanest way of doing it. Might just add a file and include that instead. 
+template:
+  - sensor:
+      - name: "Time Until Cheapest Upcoming Hour"
+        unit_of_measurement: "min"
+        state: >
+          {% set prices = state_attr('sensor.tibber_price_current_price', 'prices') %}
+          {% if prices %}
+            {% set now = now() %}
+            {% set future = prices | selectattr("startsAt", ">", now.isoformat()) | list %}
+            {% if future %}
+              {% set cheapest = future | min(attribute='total') %}
+              {% set start = as_datetime(cheapest.startsAt) %}
+              {{ ((start - now).total_seconds() // 60) | int }}
+            {% else %}
+              unknown
+            {% endif %}
+          {% else %}
+            unknown
+          {% endif %}
+        attributes:
+          starts_at: >
+            {% set prices = state_attr('sensor.tibber_price_current_price', 'prices') %}
+            {% if prices %}
+              {% set future = prices | selectattr("startsAt", ">", now().isoformat()) | list %}
+              {% if future %}
+                {{ (future | min(attribute='total')).startsAt }}
+              {% else %}
+                unknown
+              {% endif %}
+            {% else %}
+              unknown
+            {% endif %}
+          readable: >
+            {% set prices = state_attr('sensor.tibber_price_current_price', 'prices') %}
+            {% if prices %}
+              {% set now = now() %}
+              {% set future = prices | selectattr("startsAt", ">", now.isoformat()) | list %}
+              {% if future %}
+                {% set start = as_datetime((future | min(attribute='total')).startsAt) %}
+                {% set delta = (start - now).total_seconds() | int %}
+                {% set h = (delta // 3600) %}
+                {% set m = ((delta % 3600) // 60) %}
+                {{ h }}h {{ m }}m
+              {% else %}
+                unknown
+              {% endif %}
+            {% else %}
+              unknown
+            {% endif %}
