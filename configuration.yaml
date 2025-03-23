@@ -7,5 +7,6 @@ sensor:
   name: "Tibber Price"
 
 
-# Includes the template file that has the declarations for sensors with time until cheapest hours in 12h and 24h.
-template: !include templates_tibber.yaml
+# Includes the template file that has the declarations for sensors with time until cheapest hours in 12h and 24h. 
+# UPDATE: Moved templates to separate folder. 
+template: !include_dir_merge_list templates/
