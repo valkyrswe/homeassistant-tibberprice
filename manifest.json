@@ -1,0 +1,9 @@
+{
+    "domain": "tibberprice",
+    "name": "Tibber Price",
+    "version": "1.0.0",
+    "documentation": "https://github.com/valkyrswe/homeassistant-tibberprice",
+    "requirements": [],
+    "dependencies": [],
+    "codeowners": ["@valkyrswe"]
+  }
