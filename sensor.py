@@ -1,4 +1,4 @@
-
+#Imports
 import logging
 import requests
 import voluptuous as vol
@@ -10,6 +10,7 @@ from homeassistant.const import CONF_URL, CONF_NAME
 from homeassistant.helpers.event import async_track_time_change
 import homeassistant.helpers.config_validation as cv
 
+#
 _LOGGER = logging.getLogger(__name__)
 
 CONF_TOKEN = "token"
@@ -21,7 +22,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string
 })
 
-
+#Setup initial async
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     url = config[CONF_URL]
     token = config.get(CONF_TOKEN)
@@ -37,7 +38,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     ]
 
     coordinator.set_sensors(sensors)
-
+# Set the sensor to only update when new prices are avaliable. This usually is between 16:00-18:00.
     async def scheduled_refresh(now):
         _LOGGER.info("Scheduled Tibber update at 18:00")
         await coordinator.async_update()
@@ -52,7 +53,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
 
     async_add_entities(sensors)
 
-
+# Define variables for API call. 
 class TibberPriceDataCoordinator:
     def __init__(self, hass, url, token):
         self.hass = hass
@@ -67,7 +68,7 @@ class TibberPriceDataCoordinator:
 
     def set_sensors(self, sensors):
         self.sensors = sensors
-
+        # Define the acual API call, took it from Tibbers developer portal.
     async def async_update(self):
         headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
         query = """
@@ -103,7 +104,7 @@ class TibberPriceDataCoordinator:
                     json={"query": query}
                 )
             )
-
+# Check is response is good, portion the parts in the attributes for the sensors. 
             if response.status_code == 200:
                 data = response.json()
                 prices_today = data["data"]["viewer"]["homes"][0]["currentSubscription"]["priceInfo"]["today"]
