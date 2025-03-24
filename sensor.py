@@ -43,13 +43,14 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
         _LOGGER.info("Scheduled Tibber update at 18:00")
         await coordinator.async_update()
 
-    async_track_time_change(
-        hass,
-        scheduled_refresh,
-        hour=18,
-        minute=0,
-        second=0
-    )
+    for hour in range(0, 24, 3):  # Change it to update every three hours, since the updates are irregular sometimes.
+        async_track_time_change(
+            hass,
+            scheduled_refresh,
+            hour=hour,
+            minute=0,
+            second=0
+        )
 
     async_add_entities(sensors)
 
