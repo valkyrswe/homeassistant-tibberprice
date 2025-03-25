@@ -38,21 +38,23 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     ]
 
     coordinator.set_sensors(sensors)
-# Set the sensor to only update when new prices are avaliable. This usually is between 16:00-18:00.
-    async def scheduled_refresh(now):
-        _LOGGER.info("Scheduled Tibber update at 18:00")
-        await coordinator.async_update()
+# Set the sensor to only update when new prices are available (usually between 16:00–18:00),
+# but we now check every hour to catch updates reliably.
+async def scheduled_refresh(now):
+    _LOGGER.info("Scheduled Tibber update at %s", now.strftime("%H:%M"))
+    await coordinator.async_update()
 
-    for hour in range(0, 24, 3):  # Change it to update every three hours, since the updates are irregular sometimes.
-        async_track_time_change(
-            hass,
-            scheduled_refresh,
-            hour=hour,
-            minute=0,
-            second=0
-        )
+# Schedule an update every hour on the hour
+for hour in range(0, 24, 1):
+    async_track_time_change(
+        hass,
+        scheduled_refresh,
+        hour=hour,
+        minute=0,
+        second=0
+    )
 
-    async_add_entities(sensors)
+async_add_entities(sensors)
 
 # Define variables for API call. 
 class TibberPriceDataCoordinator:
