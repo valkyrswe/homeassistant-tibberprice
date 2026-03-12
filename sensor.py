@@ -1,62 +1,60 @@
-#Imports
+# Imports
 import logging
 import requests
 import voluptuous as vol
 
 from datetime import datetime
 from dateutil.parser import isoparse
-from homeassistant.components.sensor import PLATFORM_SCHEMA, SensorEntity
+from homeassistant.components.sensor import PLATFORM_SCHEMA, SensorEntity, SensorStateClass
 from homeassistant.const import CONF_URL, CONF_NAME
 from homeassistant.helpers.event import async_track_time_change
+from homeassistant.util import dt as dt_util
 import homeassistant.helpers.config_validation as cv
 
-#
 _LOGGER = logging.getLogger(__name__)
 
 CONF_TOKEN = "token"
+CONF_UNIT = "unit"
 DEFAULT_NAME = "Tibber Price"
+DEFAULT_UNIT = "NOK/kWh"
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_URL): cv.string,
     vol.Optional(CONF_TOKEN): cv.string,
-    vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string
+    vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
+    vol.Optional(CONF_UNIT, default=DEFAULT_UNIT): cv.string,
 })
 
-#Setup initial async
+# Set up platform
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     url = config[CONF_URL]
     token = config.get(CONF_TOKEN)
     name = config.get(CONF_NAME)
+    unit = config.get(CONF_UNIT)
 
     coordinator = TibberPriceDataCoordinator(hass, url, token)
     sensors = [
-        TibberPriceSensor(f"{name} Current Price", coordinator, "current"),
-        TibberPriceSensor(f"{name} Cheapest Hour", coordinator, "cheapest"),
-        TibberPriceSensor(f"{name} Most Expensive Hour", coordinator, "most_expensive"),
-        TibberPriceSensor(f"{name} Next Hour", coordinator, "next"),
-        TibberPriceSensor(f"{name} Average Price Tomorrow", coordinator, "tomorrow_avg")
+        TibberPriceSensor(f"{name} Current Price", coordinator, "current", unit),
+        TibberPriceSensor(f"{name} Cheapest Hour", coordinator, "cheapest", unit),
+        TibberPriceSensor(f"{name} Most Expensive Hour", coordinator, "most_expensive", unit),
+        TibberPriceSensor(f"{name} Next Hour", coordinator, "next", unit),
+        TibberPriceSensor(f"{name} Average Price Tomorrow", coordinator, "tomorrow_avg", unit),
     ]
 
     coordinator.set_sensors(sensors)
-# Set the sensor to only update when new prices are available (usually between 16:00–18:00),
-# but we now check every hour to catch updates reliably.
-async def scheduled_refresh(now):
-    _LOGGER.info("Scheduled Tibber update at %s", now.strftime("%H:%M"))
-    await coordinator.async_update()
 
-# Schedule an update every hour on the hour
-for hour in range(0, 24, 1):
-    async_track_time_change(
-        hass,
-        scheduled_refresh,
-        hour=hour,
-        minute=0,
-        second=0
-    )
+    # Set the sensor to only update when new prices are available (usually between 16:00–18:00),
+    # but we check every hour to catch updates reliably.
+    async def scheduled_refresh(now):
+        _LOGGER.info("Scheduled Tibber update at %s", now.strftime("%H:%M"))
+        await coordinator.async_update()
 
-async_add_entities(sensors)
+    # Schedule an update every hour on the hour
+    async_track_time_change(hass, scheduled_refresh, hour=None, minute=0, second=0)
 
-# Define variables for API call. 
+    async_add_entities(sensors)
+
+
 class TibberPriceDataCoordinator:
     def __init__(self, hass, url, token):
         self.hass = hass
@@ -71,7 +69,8 @@ class TibberPriceDataCoordinator:
 
     def set_sensors(self, sensors):
         self.sensors = sensors
-        # Define the acual API call, took it from Tibbers developer portal.
+
+    # Define the actual API call, from Tibber's developer portal.
     async def async_update(self):
         headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
         query = """
@@ -107,26 +106,31 @@ class TibberPriceDataCoordinator:
                     json={"query": query}
                 )
             )
-# Check is response is good, portion the parts in the attributes for the sensors. 
+            # Check if response is good, portion the parts in the attributes for the sensors.
             if response.status_code == 200:
                 data = response.json()
-                prices_today = data["data"]["viewer"]["homes"][0]["currentSubscription"]["priceInfo"]["today"]
-                prices_tomorrow = data["data"]["viewer"]["homes"][0]["currentSubscription"]["priceInfo"].get("tomorrow", [])
+                price_info = data["data"]["viewer"]["homes"][0]["currentSubscription"]["priceInfo"]
+                prices_today = price_info.get("today", [])
+                prices_tomorrow = price_info.get("tomorrow", [])
+
+                if not prices_today:
+                    _LOGGER.warning("TibberPrice: no 'today' prices in API response")
 
                 self.prices = prices_today + prices_tomorrow
 
-                now = datetime.now().isoformat()
+                now = dt_util.now().isoformat()
                 upcoming = [p for p in self.prices if p["startsAt"] > now]
 
                 if self.prices:
                     self.cheapest = min(self.prices, key=lambda x: x["total"])
                     self.most_expensive = max(self.prices, key=lambda x: x["total"])
 
-                if upcoming:
-                    self.next_hour = upcoming[0]
+                self.next_hour = upcoming[0] if upcoming else None
 
                 if prices_tomorrow:
                     self.tomorrow_avg = sum(p["total"] for p in prices_tomorrow) / len(prices_tomorrow)
+                else:
+                    self.tomorrow_avg = None
 
                 for sensor in self.sensors:
                     if getattr(sensor, "_ready", False):
@@ -135,13 +139,16 @@ class TibberPriceDataCoordinator:
             else:
                 _LOGGER.error("TibberPrice HTTP %s: %s", response.status_code, response.text)
 
-        except Exception as e:
-            _LOGGER.exception("Error fetching Tibber data: %s", e)
+        except Exception:
+            _LOGGER.exception("Error fetching Tibber data")
 
 
 class TibberPriceSensor(SensorEntity):
-    def __init__(self, name, coordinator, sensor_type):
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, name, coordinator, sensor_type, unit):
         self._attr_name = name
+        self._attr_unit_of_measurement = unit
         self.coordinator = coordinator
         self.sensor_type = sensor_type
         self._state = None
@@ -173,11 +180,15 @@ class TibberPriceSensor(SensorEntity):
             }
 
         if self.sensor_type == "current":
-            now = datetime.now().replace(minute=0, second=0, microsecond=0).isoformat()
-            match = next((p for p in self.coordinator.prices if p["startsAt"].startswith(now)), None)
+            now_hour = dt_util.now().replace(minute=0, second=0, microsecond=0)
+            match = next(
+                (p for p in self.coordinator.prices
+                 if isoparse(p["startsAt"]).astimezone(now_hour.tzinfo).replace(minute=0, second=0, microsecond=0) == now_hour),
+                None
+            )
             if match:
                 self._state = match["total"]
-                self._attributes = format_attributes(match)
+                self._attributes = {**format_attributes(match), "prices": self.coordinator.prices}
 
         elif self.sensor_type == "cheapest":
             if self.coordinator.cheapest:
